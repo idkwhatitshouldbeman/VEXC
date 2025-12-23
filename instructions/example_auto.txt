@@ -1,0 +1,50 @@
+# Example Autonomous Instruction File
+# Lines starting with # are comments
+
+# Initialize position (x, y, heading_degrees)
+INIT 0 0 180
+
+# Set high scoring to wait position
+HIGH_SCORE WAIT
+
+# Start intake
+INTAKE COLLECT
+
+# Follow path to mobile goal (reverse)
+# PATH red_left_mogo.csv reverse
+# For now, use basic drive commands
+DRIVE_TO -24 0
+
+# Wait for path to complete
+WAIT 500
+
+# Clamp mobile goal
+MOGO on
+
+# Small delay
+WAIT 100
+
+# Continue collecting
+INTAKE COLLECT
+
+# Drive forward
+DRIVE_TO 0 24
+
+# Follow path to rings
+# PATH red_left_rings.csv
+
+# Wait for intake
+WAIT 1000
+
+# Score in top back
+SCORE TOP_BACK
+
+# Return to neutral position
+HIGH_SCORE DOWN
+
+# Stop intake
+INTAKE STOP
+
+# End autonomous
+END
+
