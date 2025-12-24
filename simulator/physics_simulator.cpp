@@ -314,30 +314,30 @@ public:
                             break;
                         case SDLK_UP:
                             if (controlMode == ControlMode::MANUAL) {
-                                robot.leftMotorForce += 5;
-                                robot.rightMotorForce += 5;
+                                robot.leftMotorForce += 20;
+                                robot.rightMotorForce += 20;
                             } else if (controlMode == ControlMode::TURN_TO) {
                                 targetHeading += 5;
                             }
                             break;
                         case SDLK_DOWN:
                             if (controlMode == ControlMode::MANUAL) {
-                                robot.leftMotorForce -= 5;
-                                robot.rightMotorForce -= 5;
+                                robot.leftMotorForce -= 20;
+                                robot.rightMotorForce -= 20;
                             } else if (controlMode == ControlMode::TURN_TO) {
                                 targetHeading -= 5;
                             }
                             break;
                         case SDLK_LEFT:
                             if (controlMode == ControlMode::MANUAL) {
-                                robot.leftMotorForce -= 5;
-                                robot.rightMotorForce += 5;
+                                robot.leftMotorForce -= 20;
+                                robot.rightMotorForce += 20;
                             }
                             break;
                         case SDLK_RIGHT:
                             if (controlMode == ControlMode::MANUAL) {
-                                robot.leftMotorForce += 5;
-                                robot.rightMotorForce -= 5;
+                                robot.leftMotorForce += 20;
+                                robot.rightMotorForce -= 20;
                             }
                             break;
                         case SDLK_SPACE:
@@ -384,44 +384,51 @@ public:
     }
     
     void updatePhysics(double dt) {
-        // Limit forces to motor capabilities
-        robot.leftMotorForce = std::max(-MAX_MOTOR_TORQUE, std::min(MAX_MOTOR_TORQUE, robot.leftMotorForce));
-        robot.rightMotorForce = std::max(-MAX_MOTOR_TORQUE, std::min(MAX_MOTOR_TORQUE, robot.rightMotorForce));
+        // Limit forces to motor capabilities (in Newtons)
+        robot.leftMotorForce = std::max(-MAX_MOTOR_TORQUE * 10.0, std::min(MAX_MOTOR_TORQUE * 10.0, robot.leftMotorForce));
+        robot.rightMotorForce = std::max(-MAX_MOTOR_TORQUE * 10.0, std::min(MAX_MOTOR_TORQUE * 10.0, robot.rightMotorForce));
         
-        // Convert motor forces to linear and angular acceleration
-        double totalForce = (robot.leftMotorForce + robot.rightMotorForce) / WHEEL_RADIUS;
-        double torque = (robot.rightMotorForce - robot.leftMotorForce) * WHEEL_BASE / (2.0 * WHEEL_RADIUS);
+        // Convert motor forces (Newtons) to linear and angular acceleration
+        // Force = Torque / Radius, so we convert torque to force
+        double leftForce = robot.leftMotorForce;
+        double rightForce = robot.rightMotorForce;
+        double totalForce = leftForce + rightForce;
+        double netTorque = (rightForce - leftForce) * WHEEL_BASE / 2.0; // Torque in N⋅in
         
-        // Apply friction
-        double frictionForce = -FRICTION_COEFFICIENT * ROBOT_MASS * 9.81 * 0.0254; // Convert to Newtons
-        double frictionTorque = -0.1 * robot.angularVel; // Angular friction
+        // Apply friction (opposes motion)
+        double speed = sqrt(robot.vx * robot.vx + robot.vy * robot.vy);
+        double frictionForce = 0.0;
+        if (speed > 0.01) {
+            frictionForce = -FRICTION_COEFFICIENT * ROBOT_MASS * 9.81 * (robot.vx / speed);
+        }
+        double frictionTorque = -0.5 * robot.angularVel; // Angular friction
         
-        // Calculate accelerations
-        double ax = (totalForce * cos(robot.heading) + frictionForce * cos(robot.heading)) / ROBOT_MASS;
-        double ay = (totalForce * sin(robot.heading) + frictionForce * sin(robot.heading)) / ROBOT_MASS;
-        double alpha = (torque + frictionTorque) / MOMENT_OF_INERTIA;
+        // Calculate accelerations (in inches/s²)
+        double ax = (totalForce * cos(robot.heading) + frictionForce * cos(robot.heading)) / ROBOT_MASS * 39.37; // Convert m/s² to in/s²
+        double ay = (totalForce * sin(robot.heading) + frictionForce * sin(robot.heading)) / ROBOT_MASS * 39.37;
+        double alpha = (netTorque + frictionTorque) / MOMENT_OF_INERTIA; // rad/s²
         
-        // Update velocities
+        // Update velocities (in inches/s and rad/s)
         robot.vx += ax * dt;
         robot.vy += ay * dt;
         robot.angularVel += alpha * dt;
         
-        // Apply velocity damping
-        robot.vx *= 0.98;
-        robot.vy *= 0.98;
-        robot.angularVel *= 0.95;
+        // Apply velocity damping (air resistance, etc.)
+        robot.vx *= 0.99;
+        robot.vy *= 0.99;
+        robot.angularVel *= 0.97;
         
-        // Update position
-        robot.x += robot.vx * dt * 0.0254; // Convert m/s to in/s
-        robot.y += robot.vy * dt * 0.0254;
+        // Update position (already in inches)
+        robot.x += robot.vx * dt;
+        robot.y += robot.vy * dt;
         robot.heading += robot.angularVel * dt;
         
         // Normalize heading
         while (robot.heading > 2 * M_PI) robot.heading -= 2 * M_PI;
         while (robot.heading < 0) robot.heading += 2 * M_PI;
         
-        // Update sensors
-        double linearVel = sqrt(robot.vx * robot.vx + robot.vy * robot.vy) / 0.0254; // in/s
+        // Update sensors (velocities already in in/s)
+        double linearVel = sqrt(robot.vx * robot.vx + robot.vy * robot.vy); // in/s
         robot.leftEncoder += (linearVel - robot.angularVel * WHEEL_BASE / 2.0) * dt * 360.0 / (2.0 * M_PI * WHEEL_RADIUS);
         robot.rightEncoder += (linearVel + robot.angularVel * WHEEL_BASE / 2.0) * dt * 360.0 / (2.0 * M_PI * WHEEL_RADIUS);
         robot.verticalEncoder += linearVel * dt * 360.0 / (2.0 * M_PI * WHEEL_RADIUS);
@@ -453,9 +460,9 @@ public:
             // Use linear PID for distance
             double linearOutput = linearPID.calculate(0, distance, dt);
             
-            // Convert to motor forces
-            double baseForce = linearOutput * 0.1; // Scale
-            double turnForce = angularOutput * 0.1;
+            // Convert to motor forces (scale up for realistic movement)
+            double baseForce = linearOutput * 2.0; // Scale up
+            double turnForce = angularOutput * 1.5;
             
             robot.leftMotorForce = baseForce - turnForce;
             robot.rightMotorForce = baseForce + turnForce;
@@ -473,8 +480,8 @@ public:
             
             double output = turnPID.calculateFromError(angleError, dt);
             
-            robot.leftMotorForce = -output * 0.1;
-            robot.rightMotorForce = output * 0.1;
+            robot.leftMotorForce = -output * 1.5;
+            robot.rightMotorForce = output * 1.5;
             
             if (abs(angleError) < 0.05) { // ~3 degrees
                 robot.leftMotorForce = robot.rightMotorForce = 0;
@@ -506,8 +513,8 @@ public:
                     double angularOutput = angularPID.calculateFromError(angleError, dt);
                     double linearOutput = linearPID.calculate(0, distance, dt);
                     
-                    double baseForce = linearOutput * 0.1;
-                    double turnForce = angularOutput * 0.1;
+                    double baseForce = linearOutput * 2.0;
+                    double turnForce = angularOutput * 1.5;
                     
                     robot.leftMotorForce = baseForce - turnForce;
                     robot.rightMotorForce = baseForce + turnForce;
